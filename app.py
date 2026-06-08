@@ -93,9 +93,9 @@ if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
 else:
     st.sidebar.warning("📡 Đang kết nối vệ tinh GPS... (Hoặc vui lòng bấm 'Cho phép chia sẻ vị trí')")
 
-# Hiển thị số liệu tọa độ để sinh viên theo dõi
-st.sidebar.number_input("Vĩ độ hiện tại (Lat):", value=current_lat, format="%.6f", disabled=False)
-st.sidebar.number_input("Kinh độ hiện tại (Lon):", value=current_lon, format="%.6f", disabled=False)
+# Hiển thị số liệu tọa độ để sinh viên theo dõi (Đã mở khóa disabled=False để cho phép nhập tay khi mất mạng)
+current_lat = st.sidebar.number_input("Vĩ độ hiện tại (Lat):", value=current_lat, format="%.6f", disabled=False)
+current_lon = st.sidebar.number_input("Kinh độ hiện tại (Lon):", value=current_lon, format="%.6f", disabled=False)
 
 # Tự động vẽ tuyến đường khi xe di chuyển nếu hành trình đang chạy
 if st.session_state.hanh_trinh_dang_chay:
@@ -121,7 +121,7 @@ with col_btn2:
 col1, col2 = st.columns([1, 1.2])
 
 # ==========================================
-# CỘT TRÁI: AI & THÔNG SỐ (Giữ nguyên Bước 5)
+# CỘT TRÁI: AI & THÔNG SỐ
 # ==========================================
 with col1:
     st.header("🧠 Phân tích mặt đường bằng AI (YOLOv8)")
@@ -190,116 +190,4 @@ with col1:
     ma_doan = st.text_input("Mã định danh đoạn đường:", placeholder="Ví dụ: 1_BTXM_1")
     loai_duong = st.selectbox("Chọn loại kết cấu mặt đường:", options=["Đường nhựa (Mặt đường mềm)", "Đường BTXM (Mặt đường cứng)"])
     
-    c_param = st.number_input("% Diện tích nứt (C):", min_value=0.0, max_value=100.0, value=st.session_state.ai_c_param, step=0.1)
-    p_param = st.number_input("% Diện tích vá (P):", min_value=0.0, max_value=100.0, value=st.session_state.ai_p_param, step=0.1)
-    st.metric(label="🚨 Tổng số ổ gà AI phát hiện", value=f"{st.session_state.ai_o_ga_count} Ổ gà")
-    sv_param = st.number_input("Độ gồ ghề mặt đường (SV):", min_value=0.0, value=0.0, step=0.1)
-    
-    if loai_duong == "Đường nhựa (Mặt đường mềm)":
-        rd_param = st.number_input("Chiều sâu lún vệt bánh xe trung bình (RD - mm):", min_value=0.0, value=0.0, step=0.1)
-    else: rd_param = 0.0
-
-    st.write("---")
-    btn_tinh_psi = st.button("Tính điểm PSI", type="primary")
-
-# ==========================================
-# CỘT PHẢI: BẢN ĐỒ VỆ TINH THEO DÕI VỊ TRÍ THỰC
-# ==========================================
-with col2:
-    st.header("🗺️ Bản đồ & Lộ trình thực tế")
-    m = folium.Map(location=[current_lat, current_lon], zoom_start=18)
-    folium.TileLayer(
-        tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
-        attr='Google Vệ Tinh', name='Bản đồ vệ tinh', overlay=False
-    ).add_to(m)
-    folium.TileLayer('openstreetmap', name='Bản đồ đường phố').add_to(m)
-    folium.LayerControl().add_to(m)
-    
-    # Đánh dấu vị trí thời gian thực hiện tại của kỹ sư/sinh viên
-    folium.Marker([current_lat, current_lon], popup="Vị trí của bạn", icon=folium.Icon(color='blue', icon='user', prefix='fa')).add_to(m)
-    
-    if st.session_state.toa_do_bat_dau:
-        folium.Marker(st.session_state.toa_do_bat_dau, popup="Điểm xuất phát", icon=folium.Icon(color='green', icon='play')).add_to(m)
-    if st.session_state.toa_do_ket_thuc:
-        folium.Marker(st.session_state.toa_do_ket_thuc, popup="Điểm kết thúc", icon=folium.Icon(color='red', icon='flag')).add_to(m)
-
-    if len(st.session_state.lich_su_lo_trinh) > 1:
-        folium.PolyLine(locations=st.session_state.lich_su_lo_trinh, color="cyan", weight=5, opacity=0.8).add_to(m)
-        
-    st_data = st_folium(m, width=700, height=450, key="map_tracker")
-
-    st.write("---")
-    st.subheader("🎯 Đánh giá & Chấm điểm hệ thống:")
-    
-    if btn_tinh_psi:
-        if not ten_sv or not ma_doan:
-            st.error("Vui lòng điền đầy đủ Tên SV và Mã đoạn đường!")
-        elif not st.session_state.toa_do_ket_thuc:
-            st.error("Bạn chưa bấm nút Kết thúc hành trình!")
-        else:
-            # Tính khoảng cách Haversine kiểm tra lộ trình mẫu
-            lat1, lon1 = st.session_state.toa_do_ket_thuc
-            lat2, lon2 = TOA_DO_MAU_LAT, TOA_DO_MAU_LON
-            R = 6371000
-            phi1, phi2 = math.radians(lat1), math.radians(lat2)
-            dphi = math.radians(lat2 - lat1)
-            dlam = math.radians(lon2 - lon1)
-            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlam/2)**2
-            khoang_cach = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
-            dung_lo_trinh = khoang_cach <= 500.0
-            
-            log_sv = math.log10(1 + sv_param)
-            sum_cp = c_param + p_param
-            sqrt_cp = math.sqrt(sum_cp)
-            
-            if loai_duong == "Đường nhựa (Mặt đường mềm)":
-                psi = 5.03 - (1.91 * log_sv) - (1.38 * (rd_param ** 2)) - (0.01 * sqrt_cp)
-            else:
-                psi = 5.41 - (1.78 * log_sv) - (0.09 * sqrt_cp)
-            
-            if st.session_state.ai_o_ga_count > 0:
-                psi -= min(st.session_state.ai_o_ga_count * 0.05, 1.0)
-            
-            if psi > 5.0: psi = 5.0
-            if psi < 0.0: psi = 0.0
-            psi_rounded = round(psi, 1)
-            
-            st.metric(label="Chỉ số PSI Mặt đường", value=f"{psi_rounded} / 5.0")
-            trang_thai_duong = "Rất tốt" if psi_rounded >= 4.0 else ("Trung bình" if psi_rounded >= 2.0 else "Hư hỏng nặng")
-            
-            if psi_rounded >= 4.0: st.success("🟢 Đường rất tốt, đi xe máy rất êm thuận.")
-            elif psi_rounded >= 2.0: st.warning("🟡 Mặt đường có hư hỏng, rung lắc nhẹ.")
-            else: st.error("🔴 Đường hư hỏng nặng, nguy hiểm do có nhiều ổ gà!")
-            
-            if dung_lo_trinh: st.success(f"✅ Đúng lộ trình quy định.")
-            else: st.error(f"❌ Sai lộ trình quy định.")
-
-            # BÁO CÁO EXCEL
-            st.write("---")
-            st.subheader("📊 Xuất file báo cáo nghiệm thu")
-            data_report = {
-                "Thông số báo cáo": [
-                    "Tên Sinh viên", "Mã đoạn đường", "Loại kết cấu mặt đường", 
-                    "Thời gian kết thúc", "Tọa độ bắt đầu", "Tọa độ kết thúc", 
-                    "Đúng lộ trình", "% Diện tích nứt (C)", "% Diện tích vá (P)", 
-                    "Số lượng ổ gà AI", "Độ gồ ghề (SV)", "Chỉ số PSI cuối cùng", "Trạng thái mặt đường"
-                ],
-                "Giá trị thực tế": [
-                    ten_sv, ma_doan, loai_duong, 
-                    st.session_state.thoi_gian_ket_thuc, str(st.session_state.toa_do_bat_dau), str(st.session_state.toa_do_ket_thuc),
-                    "Đúng" if dung_lo_trinh else "Sai", c_param, p_param, 
-                    st.session_state.ai_o_ga_count, sv_param, psi_rounded, trang_thai_duong
-                ]
-            }
-            df = pd.DataFrame(data_report)
-            buffer = io.BytesIO()
-            with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
-                df.to_excel(writer, index=False, sheet_name='Báo cáo PSI')
-            
-            st.download_button(
-                label="📥 Tải xuống báo cáo kết quả (.xlsx)",
-                data=buffer.getvalue(),
-                file_name=f"Bao_cao_PSI_{ma_doan}_{ten_sv}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True
-            )
+    c_param = st.number_input("% Diện tích nứt (C):", min_value=0.0, max_value=100.0, value=
