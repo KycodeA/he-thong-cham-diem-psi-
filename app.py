@@ -10,6 +10,7 @@ from PIL import Image
 from ultralytics import YOLO
 import pandas as pd
 import io
+import requests  # Thư viện dùng để gọi API định tuyến giống Google Maps
 
 # Cấu hình trang giao diện rộng rãi, hiện đại
 st.set_page_config(layout="wide", page_title="Hệ thống chấm điểm PSI mặt đường")
@@ -87,11 +88,11 @@ if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
 else:
     st.sidebar.warning("📡 Đang kết nối vệ tinh GPS... (Hoặc nhập tọa độ thủ công bên dưới)")
 
-# 2 Ô NHẬP TOẠ ĐỘ (Mở khóa hoàn toàn để sinh viên gõ số khi offline)
+# 2 Ô NHẬP TOẠ ĐỘ
 input_lat = st.sidebar.number_input("Vĩ độ hiện tại / Điểm nhập (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ hiện tại / Điểm nhập (Lon):", value=current_lon, format="%.6f")
 
-# Tự động ghi nhận lộ trình thời gian thực nếu đang chạy trực tuyến ngoài đường
+# Tự động ghi nhận lộ trình trực tuyến ngoài đường
 if st.session_state.hanh_trinh_dang_chay:
     current_point = (input_lat, input_lon)
     if not st.session_state.lich_su_lo_trinh or st.session_state.lich_su_lo_trinh[-1] != current_point:
@@ -112,32 +113,32 @@ with col_btn2:
         st.session_state.toa_do_ket_thuc = (input_lat, input_lon)
         st.session_state.thoi_gian_ket_thuc = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         
-        # --- THUẬT TOÁN TỰ ĐỘNG BẺ CONG TUYẾN LỘ TRÌNH THEO HÌNH DÁNG ĐƯỜNG KHI NHẬP THỦ CÔNG ---
         lat_start, lon_start = st.session_state.toa_do_bat_dau
         lat_end, lon_end = st.session_state.toa_do_ket_thuc
         
-        # Kiểm tra nếu khoảng cách giữa điểm đầu và cuối lớn và danh sách lịch sử quá ít điểm (do nhập thủ công offline)
+        # --- CALL API ĐỊNH TUYẾN THỰC TẾ OSRM (GIỐNG GOOGLE MAPS) ---
         if len(st.session_state.lich_su_lo_trinh) <= 2:
-            generated_route = []
-            # Chia đoạn thẳng thành 5 phân đoạn nhỏ để tạo độ mịn
-            for i in range(6):
-                t = i / 5.0
-                # Nội suy tuyến tính cơ bản
-                interp_lat = lat_start + (lat_end - lat_start) * t
-                interp_lon = lon_start + (lon_end - lon_start) * t
+            try:
+                # Định dạng gọi OSRM API công khai: lon,lat;lon,lat
+                url = f"http://router.project-osrm.org/route/v1/driving/{lon_start},{lat_start};{lon_end},{lat_end}?overview=full&geometries=geojson"
+                response = requests.get(url, timeout=5)
+                res_data = response.json()
                 
-                # Áp dụng hàm lượng giác Sin để bẻ cong điểm giữa mô phỏng bán kính đường cong thực tế trong trường
-                if i > 0 and i < 5:
-                    offset_factor = math.sin(t * math.pi) * 0.00015 # Tạo độ võng hình học nhẹ cho tuyến đường
-                    interp_lat += offset_factor
-                    interp_lon -= offset_factor
-                    
-                generated_route.append((interp_lat, interp_lon))
-            st.session_state.lich_su_lo_trinh = generated_route
+                if res_data.get("code") == "Ok":
+                    # Trích xuất danh sách các tọa độ uốn lượn thực tế từ API bản đồ
+                    geometry = res_data["routes"][0]["geometry"]["coordinates"]
+                    # OSRM trả về dạng [lon, lat], cần đảo ngược lại thành [lat, lon] để vẽ Folium
+                    real_route = [(coord[1], coord[0]) for coord in geometry]
+                    st.session_state.lich_su_lo_trinh = real_route
+                    st.sidebar.success("🗺️ Đã đồng bộ tuyến đường thực tế từ API Bản đồ!")
+                else:
+                    st.session_state.lich_su_lo_trinh = [(lat_start, lon_start), (lat_end, lon_end)]
+            except Exception as e:
+                st.sidebar.warning(f"Không thể gọi API bản đồ (Dùng đường nối thẳng): {e}")
+                st.session_state.lich_su_lo_trinh = [(lat_start, lon_start), (lat_end, lon_end)]
         else:
             if st.session_state.lich_su_lo_trinh[-1] != (lat_end, lon_end):
                 st.session_state.lich_su_lo_trinh.append((lat_end, lon_end))
-        st.sidebar.success("🏁 Đã dựng tuyến lộ trình phù hợp!")
 
 # Chia giao diện chính
 col1, col2 = st.columns([1, 1.2])
@@ -230,7 +231,6 @@ with col1:
 with col2:
     st.header("🗺️ Bản đồ & Lộ trình thực tế")
     
-    # Định vị trung tâm bản đồ động theo dữ liệu nhập vào
     map_center_lat = input_lat if input_lat != TOA_DO_MAU_LAT else TOA_DO_MAU_LAT
     map_center_lon = input_lon if input_lon != TOA_DO_MAU_LON else TOA_DO_MAU_LON
     
@@ -242,7 +242,6 @@ with col2:
     folium.TileLayer('openstreetmap', name='Bản đồ đường phố').add_to(m)
     folium.LayerControl().add_to(m)
     
-    # Đánh dấu vị trí
     folium.Marker([input_lat, input_lon], popup="Vị trí con số đang nhập", icon=folium.Icon(color='blue', icon='user', prefix='fa')).add_to(m)
     
     if st.session_state.toa_do_bat_dau:
@@ -264,7 +263,6 @@ with col2:
         elif not st.session_state.toa_do_ket_thuc:
             st.error("Bạn chưa bấm nút Kết thúc hành trình!")
         else:
-            # Tính khoảng cách Haversine kiểm tra lộ trình mẫu
             lat1, lon1 = st.session_state.toa_do_ket_thuc
             lat2, lon2 = TOA_DO_MAU_LAT, TOA_DO_MAU_LON
             R = 6371000
@@ -283,7 +281,6 @@ with col2:
                 
             dung_lo_trinh = khoang_cach <= pham_vi_cho_phep
             
-            # Tính toán chỉ số toán học PSI
             log_sv = math.log10(1 + sv_param)
             sum_cp = c_param + p_param
             sqrt_cp = math.sqrt(sum_cp)
