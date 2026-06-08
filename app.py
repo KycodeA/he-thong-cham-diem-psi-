@@ -10,7 +10,7 @@ from PIL import Image
 from ultralytics import YOLO
 import pandas as pd
 import io
-import requests  # Thư viện dùng để gọi API định tuyến giống Google Maps
+import requests  # Thư viện gọi API định tuyến giống Google Maps
 
 # Cấu hình trang giao diện rộng rãi, hiện đại
 st.set_page_config(layout="wide", page_title="Hệ thống chấm điểm PSI mặt đường")
@@ -92,6 +92,20 @@ else:
 input_lat = st.sidebar.number_input("Vĩ độ hiện tại / Điểm nhập (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ hiện tại / Điểm nhập (Lon):", value=current_lon, format="%.6f")
 
+# --- BỔ SUNG TÍNH NĂNG CHỌN PHƯƠNG THỨC DI CHUYỂN GIỐNG GOOGLE MAPS ---
+phuong_tien = st.sidebar.selectbox(
+    "🚗 Chọn phương thức tìm đường:",
+    options=["Đi bộ (Walk)", "Xe máy (Bike)", "Ô tô (Car)"]
+)
+
+# Ánh xạ lựa chọn sang profile tương ứng của API định tuyến OSRM
+if phuong_tien == "Đi bộ (Walk)":
+    osrm_profile = "foot"
+elif phuong_tien == "Xe máy (Bike)":
+    osrm_profile = "bicycle"
+else:
+    osrm_profile = "driving"
+
 # Tự động ghi nhận lộ trình trực tuyến ngoài đường
 if st.session_state.hanh_trinh_dang_chay:
     current_point = (input_lat, input_lon)
@@ -116,25 +130,24 @@ with col_btn2:
         lat_start, lon_start = st.session_state.toa_do_bat_dau
         lat_end, lon_end = st.session_state.toa_do_ket_thuc
         
-        # --- CALL API ĐỊNH TUYẾN THỰC TẾ OSRM (GIỐNG GOOGLE MAPS) ---
+        # --- CALL API ĐỊNH TUYẾN THỰC TẾ THEO PHƯƠNG TIỆN LỰA CHỌN ---
         if len(st.session_state.lich_su_lo_trinh) <= 2:
             try:
-                # Định dạng gọi OSRM API công khai: lon,lat;lon,lat
-                url = f"http://router.project-osrm.org/route/v1/driving/{lon_start},{lat_start};{lon_end},{lat_end}?overview=full&geometries=geojson"
+                # Gọi API OSRM bảo mật https kèm profile động (foot / bicycle / driving)
+                url = f"https://router.project-osrm.org/route/v1/{osrm_profile}/{lon_start},{lat_start};{lon_end},{lat_end}?overview=full&geometries=geojson"
                 response = requests.get(url, timeout=5)
                 res_data = response.json()
                 
                 if res_data.get("code") == "Ok":
-                    # Trích xuất danh sách các tọa độ uốn lượn thực tế từ API bản đồ
                     geometry = res_data["routes"][0]["geometry"]["coordinates"]
-                    # OSRM trả về dạng [lon, lat], cần đảo ngược lại thành [lat, lon] để vẽ Folium
                     real_route = [(coord[1], coord[0]) for coord in geometry]
                     st.session_state.lich_su_lo_trinh = real_route
-                    st.sidebar.success("🗺️ Đã đồng bộ tuyến đường thực tế từ API Bản đồ!")
+                    st.sidebar.success(f"🗺️ Đã đồng bộ lộ trình [{phuong_tien}] bám theo đường thực tế!")
                 else:
+                    st.sidebar.error(f"Lỗi định tuyến ({res_data.get('code')}): Vui lòng thử đổi phương thức di chuyển khác hoặc chỉnh lại tọa độ sát mặt đường lớn.")
                     st.session_state.lich_su_lo_trinh = [(lat_start, lon_start), (lat_end, lon_end)]
             except Exception as e:
-                st.sidebar.warning(f"Không thể gọi API bản đồ (Dùng đường nối thẳng): {e}")
+                st.sidebar.warning(f"Lỗi kết nối API (Dùng đường nối thẳng): {e}")
                 st.session_state.lich_su_lo_trinh = [(lat_start, lon_start), (lat_end, lon_end)]
         else:
             if st.session_state.lich_su_lo_trinh[-1] != (lat_end, lon_end):
