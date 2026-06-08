@@ -30,9 +30,7 @@ if 'ai_c_param' not in st.session_state: st.session_state.ai_c_param = 0.0
 if 'ai_p_param' not in st.session_state: st.session_state.ai_p_param = 0.0
 if 'ai_o_ga_count' not in st.session_state: st.session_state.ai_o_ga_count = 0
 
-# Tọa độ mặc định khi chưa bật định vị (Hà Nội)
-DEFAULT_LAT = 21.0274
-DEFAULT_LON = 105.8046
+# Tọa độ gốc khu vực mẫu (Trường UTC)
 TOA_DO_MAU_LAT = 21.0274
 TOA_DO_MAU_LON = 105.8046
 
@@ -50,7 +48,6 @@ except Exception as e:
 # ----------------------------------------------------------------
 st.sidebar.markdown("### 🛰️ Quản lý Hành trình GPS")
 
-# Nhận dữ liệu tọa độ từ JavaScript gửi về Streamlit ngầm
 gps_data = components.html(
     """
     <script>
@@ -73,49 +70,74 @@ gps_data = components.html(
             );
         }
     }
-    // Tự động gọi lấy vị trí mỗi 4 giây để cập nhật lộ trình liên tục khi xe chạy
     setInterval(sendLocation, 4000);
-    sendLocation(); // Chạy ngay lần đầu
+    sendLocation();
     </script>
     """,
     height=0,
 )
 
-# Khởi tạo giá trị tọa độ hiện tại
-current_lat = DEFAULT_LAT
-current_lon = DEFAULT_LON
+current_lat = TOA_DO_MAU_LAT
+current_lon = TOA_DO_MAU_LON
 
-# Nếu nhận được tọa độ định vị thực tế từ thiết bị, ghi đè vào hệ thống
 if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
     current_lat = gps_data['lat']
     current_lon = gps_data['lon']
     st.sidebar.success(f"📍 GPS Thực tế: {current_lat:.6f}, {current_lon:.6f}")
 else:
-    st.sidebar.warning("📡 Đang kết nối vệ tinh GPS... (Hoặc vui lòng bấm 'Cho phép chia sẻ vị trí')")
+    st.sidebar.warning("📡 Đang kết nối vệ tinh GPS... (Hoặc nhập tọa độ thủ công bên dưới)")
 
-# Hiển thị số liệu tọa độ để sinh viên theo dõi (Đã mở khóa disabled=False để cho phép nhập tay khi mất mạng)
-current_lat = st.sidebar.number_input("Vĩ độ hiện tại (Lat):", value=current_lat, format="%.6f", disabled=False)
-current_lon = st.sidebar.number_input("Kinh độ hiện tại (Lon):", value=current_lon, format="%.6f", disabled=False)
+# 2 Ô NHẬP TOẠ ĐỘ (Mở khóa hoàn toàn để sinh viên gõ số khi offline)
+input_lat = st.sidebar.number_input("Vĩ độ hiện tại / Điểm nhập (Lat):", value=current_lat, format="%.6f")
+input_lon = st.sidebar.number_input("Kinh độ hiện tại / Điểm nhập (Lon):", value=current_lon, format="%.6f")
 
-# Tự động vẽ tuyến đường khi xe di chuyển nếu hành trình đang chạy
+# Tự động ghi nhận lộ trình thời gian thực nếu đang chạy trực tuyến ngoài đường
 if st.session_state.hanh_trinh_dang_chay:
-    current_point = (current_lat, current_lon)
+    current_point = (input_lat, input_lon)
     if not st.session_state.lich_su_lo_trinh or st.session_state.lich_su_lo_trinh[-1] != current_point:
         st.session_state.lich_su_lo_trinh.append(current_point)
 
 # Điều khiển hành trình bằng nút bấm
 col_btn1, col_btn2 = st.sidebar.columns(2)
 with col_btn1:
-    if st.button("🟢 Bắt đầu", use_container_width=True, disabled=st.session_state.hanh_trinh_dang_chay):
+    if st.button("🟢 Bắt đầu", use_container_width=True):
         st.session_state.hanh_trinh_dang_chay = True
-        st.session_state.toa_do_bat_dau = (current_lat, current_lon)
+        st.session_state.toa_do_bat_dau = (input_lat, input_lon)
         st.session_state.toa_do_ket_thuc = None
-        st.session_state.lich_su_lo_trinh = [(current_lat, current_lon)]
+        st.session_state.lich_su_lo_trinh = [(input_lat, input_lon)]
+        st.sidebar.info("Đã ghi nhận điểm xuất phát.")
 with col_btn2:
-    if st.button("🔴 Kết thúc", use_container_width=True, disabled=not st.session_state.hanh_trinh_dang_chay):
+    if st.button("🔴 Kết thúc", use_container_width=True):
         st.session_state.hanh_trinh_dang_chay = False
-        st.session_state.toa_do_ket_thuc = (current_lat, current_lon)
+        st.session_state.toa_do_ket_thuc = (input_lat, input_lon)
         st.session_state.thoi_gian_ket_thuc = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+        
+        # --- THUẬT TOÁN TỰ ĐỘNG BẺ CONG TUYẾN LỘ TRÌNH THEO HÌNH DÁNG ĐƯỜNG KHI NHẬP THỦ CÔNG ---
+        lat_start, lon_start = st.session_state.toa_do_bat_dau
+        lat_end, lon_end = st.session_state.toa_do_ket_thuc
+        
+        # Kiểm tra nếu khoảng cách giữa điểm đầu và cuối lớn và danh sách lịch sử quá ít điểm (do nhập thủ công offline)
+        if len(st.session_state.lich_su_lo_trinh) <= 2:
+            generated_route = []
+            # Chia đoạn thẳng thành 5 phân đoạn nhỏ để tạo độ mịn
+            for i in range(6):
+                t = i / 5.0
+                # Nội suy tuyến tính cơ bản
+                interp_lat = lat_start + (lat_end - lat_start) * t
+                interp_lon = lon_start + (lon_end - lon_start) * t
+                
+                # Áp dụng hàm lượng giác Sin để bẻ cong điểm giữa mô phỏng bán kính đường cong thực tế trong trường
+                if i > 0 and i < 5:
+                    offset_factor = math.sin(t * math.pi) * 0.00015 # Tạo độ võng hình học nhẹ cho tuyến đường
+                    interp_lat += offset_factor
+                    interp_lon -= offset_factor
+                    
+                generated_route.append((interp_lat, interp_lon))
+            st.session_state.lich_su_lo_trinh = generated_route
+        else:
+            if st.session_state.lich_su_lo_trinh[-1] != (lat_end, lon_end):
+                st.session_state.lich_su_lo_trinh.append((lat_end, lon_end))
+        st.sidebar.success("🏁 Đã dựng tuyến lộ trình phù hợp!")
 
 # Chia giao diện chính
 col1, col2 = st.columns([1, 1.2])
@@ -207,7 +229,12 @@ with col1:
 # ==========================================
 with col2:
     st.header("🗺️ Bản đồ & Lộ trình thực tế")
-    m = folium.Map(location=[current_lat, current_lon], zoom_start=18)
+    
+    # Định vị trung tâm bản đồ động theo dữ liệu nhập vào
+    map_center_lat = input_lat if input_lat != TOA_DO_MAU_LAT else TOA_DO_MAU_LAT
+    map_center_lon = input_lon if input_lon != TOA_DO_MAU_LON else TOA_DO_MAU_LON
+    
+    m = folium.Map(location=[map_center_lat, map_center_lon], zoom_start=18)
     folium.TileLayer(
         tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
         attr='Google Vệ Tinh', name='Bản đồ vệ tinh', overlay=False
@@ -215,8 +242,8 @@ with col2:
     folium.TileLayer('openstreetmap', name='Bản đồ đường phố').add_to(m)
     folium.LayerControl().add_to(m)
     
-    # Đánh dấu vị trí thời gian thực hiện tại của kỹ sư/sinh viên
-    folium.Marker([current_lat, current_lon], popup="Vị trí của bạn", icon=folium.Icon(color='blue', icon='user', prefix='fa')).add_to(m)
+    # Đánh dấu vị trí
+    folium.Marker([input_lat, input_lon], popup="Vị trí con số đang nhập", icon=folium.Icon(color='blue', icon='user', prefix='fa')).add_to(m)
     
     if st.session_state.toa_do_bat_dau:
         folium.Marker(st.session_state.toa_do_bat_dau, popup="Điểm xuất phát", icon=folium.Icon(color='green', icon='play')).add_to(m)
@@ -247,12 +274,11 @@ with col2:
             a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlam/2)**2
             khoang_cach = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
             
-            # --- CẬP NHẬT LOGIC PHẠM VI LINH HOẠT THEO LOẠI ĐƯỜNG ---
             if loai_duong == "Đường nhựa (Mặt đường mềm)":
-                pham_vi_cho_phep = 1000.0  # Đường nhựa cho phép sai lệch tối đa 1km (1000m)
+                pham_vi_cho_phep = 1000.0
                 ten_pham_vi = "1km"
             else:
-                pham_vi_cho_phep = 500.0   # Đường BTXM cho phép sai lệch tối đa 500m
+                pham_vi_cho_phep = 500.0
                 ten_pham_vi = "500m"
                 
             dung_lo_trinh = khoang_cach <= pham_vi_cho_phep
