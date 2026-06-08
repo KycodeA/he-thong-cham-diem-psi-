@@ -128,9 +128,9 @@ with col_btn2:
             
             if response.get("code") == "Ok":
                 geometry = response["routes"][0]["geometry"]["coordinates"]
-                # Cắt ghép và đảo chiều lại thành [lat, lon] cho Folium
                 st.session_state.lich_su_lo_trinh = [[coord[1], coord[0]] for coord in geometry]
                 st.session_state.loi_ban_do = False
+                st.session_state.map_key = datetime.now().strftime("%H%M%S")
                 st.sidebar.success(f"🗺️ Đã bám sát lộ trình [{phuong_tien}]!")
             else:
                 st.session_state.loi_ban_do = True
@@ -258,7 +258,8 @@ with col2:
         max_lon = max(c[1] for c in st.session_state.lich_su_lo_trinh)
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
         
-    st_data = st_folium(m, width=700, height=450, key="map_tracker")
+    dynamic_key = st.session_state.get("map_key", "default_map")
+    st_data = st_folium(m, width=700, height=450, key=f"map_{dynamic_key}")
 
     st.write("---")
     st.subheader("🎯 Đánh giá Hệ thống:")
