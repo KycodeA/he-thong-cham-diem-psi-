@@ -94,8 +94,8 @@ else:
     st.sidebar.warning("📡 Đang kết nối vệ tinh GPS... (Hoặc vui lòng bấm 'Cho phép chia sẻ vị trí')")
 
 # Hiển thị số liệu tọa độ để sinh viên theo dõi
-st.sidebar.number_input("Vĩ độ hiện tại (Lat):", value=current_lat, format="%.6f", disabled=True)
-st.sidebar.number_input("Kinh độ hiện tại (Lon):", value=current_lon, format="%.6f", disabled=True)
+st.sidebar.number_input("Vĩ độ hiện tại (Lat):", value=current_lat, format="%.6f", disabled=False)
+st.sidebar.number_input("Kinh độ hiện tại (Lon):", value=current_lon, format="%.6f", disabled=False)
 
 # Tự động vẽ tuyến đường khi xe di chuyển nếu hành trình đang chạy
 if st.session_state.hanh_trinh_dang_chay:
