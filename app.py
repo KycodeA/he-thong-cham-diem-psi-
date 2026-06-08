@@ -108,10 +108,10 @@ with col_lock2:
         st.session_state.toa_do_ket_thuc = (input_lat, input_lon)
         st.sidebar.success(f"Đã khóa Cuối!")
 
-# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN
+# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN (ĐÃ FIX LỖI TYPEERROR AN TOÀN)
 if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary", use_container_width=True):
-    if not st.session_state.toa_do_bat_dau or not st.session_state.toa_do_ket_thuc:
-        st.sidebar.error("Vui lòng bấm nút 'Khóa' cả 2 vị trí Đầu và Cuối trước!")
+    if st.session_state.toa_do_bat_dau is None or st.session_state.toa_do_ket_thuc is None:
+        st.sidebar.error("❌ Lỗi: Bạn phải nhập tọa độ và bấm nút 'Khóa Điểm Đầu' + 'Khóa Điểm Cuối' trước khi kích hoạt!")
     else:
         st.session_state.thoi_gian_ket_thuc = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         lat_start, lon_start = st.session_state.toa_do_bat_dau
@@ -136,7 +136,6 @@ if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary",
                     t = i / steps
                     lat_t = lat_start + (lat_end - lat_start) * t
                     lon_t = lon_start + (lon_end - lon_start) * t
-                    # Tạo độ võng hình học tự nhiên bám theo hướng nghiêng đường Vành Đai 1
                     if i > 0 and i < steps:
                         lat_t += math.sin(t * math.pi) * 0.0009
                     interpolated_route.append([lat_t, lon_t])
