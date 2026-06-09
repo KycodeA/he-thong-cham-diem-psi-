@@ -28,6 +28,7 @@ if 'lich_su_lo_trinh' not in st.session_state: st.session_state.lich_su_lo_trinh
 if 'tong_quang_duong_m' not in st.session_state: st.session_state.tong_quang_duong_m = 0.0
 if 'thoi_gian_ket_thuc' not in st.session_state: st.session_state.thoi_gian_ket_thuc = ""
 if 'map_key' not in st.session_state: st.session_state.map_key = "default"
+if 'gps_error_msg' not in st.session_state: st.session_state.gps_error_msg = "" # Biến lưu trạng thái lỗi GPS
 
 # Tham số do AI quét được
 if 'ai_c_param' not in st.session_state: st.session_state.ai_c_param = 0.0
@@ -64,19 +65,28 @@ gps_data = components.html(
     function success(position) {
         const data = {
             lat: position.coords.latitude,
-            lon: position.coords.longitude
+            lon: position.coords.longitude,
+            error: null
         };
         window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
     }
 
     function error(err) {
+        let errMsg = "Lỗi không xác định";
+        if (err.code == 1) errMsg = "Bị từ chối quyền truy cập Vị trí (Hãy cấp quyền trên trình duyệt)";
+        else if (err.code == 2) errMsg = "Không tìm thấy vệ tinh (Hãy ra ngoài trời)";
+        else if (err.code == 3) errMsg = "Quá thời gian chờ tín hiệu GPS";
+        
         console.warn('ERROR(' + err.code + '): ' + err.message);
+        const data = { error: errMsg };
+        window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
     }
 
     if (navigator.geolocation) {
         navigator.geolocation.watchPosition(success, error, options);
     } else {
-        console.error("Trình duyệt không hỗ trợ Geolocation API.");
+        const data = { error: "Trình duyệt của bạn không hỗ trợ Geolocation API" };
+        window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
     }
     </script>
     """,
@@ -86,12 +96,19 @@ gps_data = components.html(
 current_lat = TOA_DO_MAU_LAT
 current_lon = TOA_DO_MAU_LON
 
-if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
-    current_lat = gps_data['lat']
-    current_lon = gps_data['lon']
-    st.sidebar.success(f"📍 GPS Thiết bị: {current_lat:.6f}, {current_lon:.6f}")
+# Xử lý dữ liệu trả về từ JavaScript
+if gps_data is not None and isinstance(gps_data, dict):
+    if 'error' in gps_data and gps_data['error'] is not None:
+        st.session_state.gps_error_msg = gps_data['error']
+        st.sidebar.error(f"⚠️ {st.session_state.gps_error_msg}")
+    elif 'lat' in gps_data:
+        st.session_state.gps_error_msg = "" # Xóa lỗi nếu đã có tọa độ
+        current_lat = gps_data['lat']
+        current_lon = gps_data['lon']
+        st.sidebar.success(f"📍 GPS Thiết bị: {current_lat:.6f}, {current_lon:.6f}")
 else:
-    st.sidebar.warning("📡 Đang tìm tín hiệu vệ tinh GPS... (Hoặc bạn hãy tự gõ tọa độ kiểm thử bên dưới)")
+    if st.session_state.gps_error_msg == "":
+        st.sidebar.warning("📡 Đang tìm tín hiệu vệ tinh GPS... (Hoặc bạn hãy tự gõ tọa độ kiểm thử bên dưới)")
 
 input_lat = st.sidebar.number_input("Vĩ độ (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ (Lon):", value=current_lon, format="%.6f")
