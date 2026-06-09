@@ -28,7 +28,7 @@ if 'lich_su_lo_trinh' not in st.session_state: st.session_state.lich_su_lo_trinh
 if 'thoi_gian_ket_thuc' not in st.session_state: st.session_state.thoi_gian_ket_thuc = ""
 if 'map_key' not in st.session_state: st.session_state.map_key = "default"
 
-# Tham số do AI quét được
+# Khởi tạo tham số AI trong trạng thái hệ thống
 if 'ai_c_param' not in st.session_state: st.session_state.ai_c_param = 0.0
 if 'ai_p_param' not in st.session_state: st.session_state.ai_p_param = 0.0
 if 'ai_o_ga_count' not in st.session_state: st.session_state.ai_o_ga_count = 0
@@ -90,7 +90,6 @@ else:
 input_lat = st.sidebar.number_input("Vĩ độ (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ (Lon):", value=current_lon, format="%.6f")
 
-# Thay đổi profile thành 'car' phối hợp linh hoạt để bám đường phố lớn
 phuong_tien = st.sidebar.selectbox("🚗 Chế độ bám đường:", options=["Đường phố di chuyển linh hoạt", "Đường đi bộ nội khu"])
 osrm_profile = "driving" if phuong_tien == "Đường phố di chuyển linh hoạt" else "foot"
 
@@ -108,7 +107,7 @@ with col_lock2:
         st.session_state.toa_do_ket_thuc = (input_lat, input_lon)
         st.sidebar.success(f"Đã khóa Cuối!")
 
-# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN (ĐÃ FIX LỖI TYPEERROR AN TOÀN)
+# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN
 if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary", use_container_width=True):
     if st.session_state.toa_do_bat_dau is None or st.session_state.toa_do_ket_thuc is None:
         st.sidebar.error("❌ Lỗi: Bạn phải nhập tọa độ và bấm nút 'Khóa Điểm Đầu' + 'Khóa Điểm Cuối' trước khi kích hoạt!")
@@ -117,19 +116,16 @@ if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary",
         lat_start, lon_start = st.session_state.toa_do_bat_dau
         lat_end, lon_end = st.session_state.toa_do_ket_thuc
         
-        # SỬ DỤNG SERVER ĐỊNH TUYẾN MỞ RỘNG (Hỗ trợ định tuyến vỉa hè và lòng đường)
         try:
             url = f"https://router.project-osrm.org/route/v1/{osrm_profile}/{lon_start},{lat_start};{lon_end},{lat_end}?overview=full&geometries=geojson&continue_straight=false"
             response = requests.get(url, timeout=5).json()
             
             if response.get("code") == "Ok":
                 geometry = response["routes"][0]["geometry"]["coordinates"]
-                # Thuật toán đảo chiều mảng tọa độ chính xác [lat, lon]
                 st.session_state.lich_su_lo_trinh = [[coord[1], coord[0]] for coord in geometry]
                 st.session_state.map_key = datetime.now().strftime("%H%M%S")
                 st.sidebar.success("🎉 Đã bẻ cong lộ trình bám sát đường phố!")
             else:
-                # Nếu dính ngõ cụt, tự động kích hoạt thuật toán nội suy làm mịn đường cong mượt mà thay vì vẽ chữ L
                 steps = 15
                 interpolated_route = []
                 for i in range(steps + 1):
@@ -210,8 +206,9 @@ with col1:
     ma_doan = st.text_input("Mã định danh đoạn đường:", placeholder="Ví dụ: 1_BTXM_1")
     loai_duong = st.selectbox("Loại kết cấu mặt đường:", ["Đường nhựa (Mặt đường mềm)", "Đường BTXM (Mặt đường cứng)"])
     
-    c_param = st.number_input("% Diện tích nứt vỡ (C):", min_value=0.0, max_value=100.0, value=st.session_state.ai_c_param, step=0.1)
-    p_param = st.number_input("% Diện tích miếng vá (P):", min_value=0.0, max_value=100.0, value=st.session_state.ai_p_param, step=0.1)
+    # Đã thêm tham số 'key' để Streamlit ép đồng bộ liên tục khi AI thay đổi giá trị session_state
+    c_param = st.number_input("% Diện tích nứt vỡ (C):", min_value=0.0, max_value=100.0, value=st.session_state.ai_c_param, step=0.1, key="input_c_param")
+    p_param = st.number_input("% Diện tích miếng vá (P):", min_value=0.0, max_value=100.0, value=st.session_state.ai_p_param, step=0.1, key="input_p_param")
     st.metric(label="🚨 Tổng số lượng ổ gà phát hiện", value=f"{st.session_state.ai_o_ga_count} Ổ gà")
     
     sv_param = st.number_input("Chỉ số độ gồ ghề (SV):", min_value=0.0, value=0.0, step=0.1)
@@ -238,7 +235,6 @@ with col2:
     if st.session_state.toa_do_ket_thuc:
         folium.Marker(st.session_state.toa_do_ket_thuc, tooltip="Điểm B", icon=folium.Icon(color='red', icon='flag')).add_to(m)
 
-    # Đổ mực tuyến đường màu sắc nổi bật bám sát phố
     if len(st.session_state.lich_su_lo_trinh) > 1:
         folium.PolyLine(locations=st.session_state.lich_su_lo_trinh, color="#0066FF", weight=6, opacity=0.9, tooltip="Tuyến đường di chuyển").add_to(m)
         
@@ -248,7 +244,6 @@ with col2:
         max_lon = max(c[1] for c in st.session_state.lich_su_lo_trinh)
         m.fit_bounds([[min_lat, min_lon], [max_lat, max_lon]])
         
-    # Cơ chế phá cache giao diện Folium bằng dynamic_key
     dynamic_key = st.session_state.map_key
     st_data = st_folium(m, width=720, height=480, key=f"map_{dynamic_key}")
 
@@ -256,8 +251,10 @@ with col2:
     st.subheader("🎯 Đánh Giá Chỉ Số Mặt Đường Kỹ Thuật:")
     
     if btn_tinh_psi:
-        if not ten_sv or not ma_doan: st.error("Vui lòng nhập đầy đủ thông tin Tên Sinh viên và Mã đoạn đường!")
-        elif not st.session_state.toa_do_ket_thuc: st.error("Bạn chưa bấm nút kích hoạt định tuyến!")
+        if not ten_sv or not ma_doan: 
+            st.error("Vui lòng nhập đầy đủ thông tin Tên Sinh viên và Mã đoạn đường!")
+        elif st.session_state.toa_do_ket_thuc is None: 
+            st.error("Bạn chưa bấm nút kích hoạt định tuyến!")
         else:
             lat1, lon1 = st.session_state.toa_do_ket_thuc
             R = 6371000
@@ -271,7 +268,9 @@ with col2:
             dung_lo_trinh = khoang_cach <= pham_vi
             
             log_sv = math.log10(1 + sv_param)
-            sqrt_cp = math.sqrt(c_param + p_param)
+            # Thay đổi cách lấy giá trị để đồng bộ tuyệt đối với form biểu mẫu
+            sqrt_cp = math.sqrt(st.session_state.input_c_param + st.session_state.input_p_param)
+            
             psi = (5.03 - 1.91 * log_sv - 1.38 * (rd_param ** 2) - 0.01 * sqrt_cp) if loai_duong == "Đường nhựa (Mặt đường mềm)" else (5.41 - 1.78 * log_sv - 0.09 * sqrt_cp)
             if st.session_state.ai_o_ga_count > 0: psi -= min(st.session_state.ai_o_ga_count * 0.05, 1.0)
             psi_rounded = round(max(0.0, min(5.0, psi)), 1)
@@ -288,7 +287,7 @@ with col2:
             st.write("---")
             data_report = {
                 "Danh mục báo cáo": ["Sinh viên thực hiện", "Mã đoạn đường", "Kết cấu mặt đường", "Thời gian hoàn thành", "Vị trí bắt đầu (Lat, Lon)", "Vị trí kết thúc (Lat, Lon)", "Kiểm định lộ trình", "Mật độ nứt vỡ (C)", "Mật độ miếng vá (P)", "Tổng số ổ gà", "Độ gồ ghề (SV)", "Chỉ số PSI sau cùng", "Kết luận phân loại"],
-                "Kết quả chi tiết": [ten_sv, ma_doan, loai_duong, st.session_state.thoi_gian_ket_thuc, str(st.session_state.toa_do_bat_dau), str(st.session_state.toa_do_ket_thuc), "ĐÚNG CHUẨN" if dung_lo_trinh else "SAI LỘ TRÌNH", f"{c_param}%", f"{p_param}%", st.session_state.ai_o_ga_count, sv_param, psi_rounded, "TỐT" if psi_rounded >= 4.0 else ("TRUNG BÌNH" if psi_rounded >= 2.0 else "XUỐNG CẤP")]
+                "Kết quả chi tiết": [ten_sv, ma_doan, loai_duong, st.session_state.thoi_gian_ket_thuc, str(st.session_state.toa_do_bat_dau), str(st.session_state.toa_do_ket_thuc), "ĐÚNG CHUẨN" if dung_lo_trinh else "SAI LỘ TRÌNH", f"{st.session_state.input_c_param}%", f"{st.session_state.input_p_param}%", st.session_state.ai_o_ga_count, sv_param, psi_rounded, "TỐT" if psi_rounded >= 4.0 else ("TRUNG BÌNH" if psi_rounded >= 2.0 else "XUỐNG CẤP")]
             }
             buffer = io.BytesIO()
             pd.DataFrame(data_report).to_excel(buffer, index=False, sheet_name='Dữ liệu PSI', engine='openpyxl')
