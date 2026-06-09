@@ -28,7 +28,7 @@ if 'lich_su_lo_trinh' not in st.session_state: st.session_state.lich_su_lo_trinh
 if 'thoi_gian_ket_thuc' not in st.session_state: st.session_state.thoi_gian_ket_thuc = ""
 if 'map_key' not in st.session_state: st.session_state.map_key = "default"
 
-# Khởi tạo tham số AI trong trạng thái hệ thống
+# Tham số do AI quét được
 if 'ai_c_param' not in st.session_state: st.session_state.ai_c_param = 0.0
 if 'ai_p_param' not in st.session_state: st.session_state.ai_p_param = 0.0
 if 'ai_o_ga_count' not in st.session_state: st.session_state.ai_o_ga_count = 0
@@ -47,30 +47,39 @@ except Exception as e:
     st.error(f"Lỗi khởi tải mô hình AI: {e}")
 
 # ----------------------------------------------------------------
-# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH
+# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH (ĐÃ NÂNG CẤP WATCHPOSITION)
 # ----------------------------------------------------------------
 st.sidebar.markdown("### 🛰️ Quản lý Vị trí GPS")
 
+# Sử dụng cơ chế watchPosition để trình duyệt bám đuôi tọa độ liên tục và ép luồng dữ liệu truyền tải về Streamlit Parent
 gps_data = components.html(
     """
     <script>
-    function sendLocation() {
-        if (navigator.geolocation) {
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const data = {
-                        lat: position.coords.latitude,
-                        lon: position.coords.longitude
-                    };
-                    window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
-                },
-                (error) => { console.error("Lỗi lấy GPS: ", error); },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-            );
-        }
+    const options = {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0
+    };
+
+    function success(position) {
+        const data = {
+            lat: position.coords.latitude,
+            lon: position.coords.longitude
+        };
+        // Gửi tọa độ thẳng lên Streamlit Cloud thông qua cơ chế postMessage bắt buộc
+        window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
     }
-    setInterval(sendLocation, 4000);
-    sendLocation();
+
+    function error(err) {
+        console.warn('ERROR(' + err.code + '): ' + err.message);
+    }
+
+    // Bật trình theo dõi tọa độ liên tục thay vì gọi một lần ngắt quãng
+    if (navigator.geolocation) {
+        navigator.geolocation.watchPosition(success, error, options);
+    } else {
+        console.error("Trình duyệt không hỗ trợ Geolocation API.");
+    }
     </script>
     """,
     height=0,
@@ -79,14 +88,15 @@ gps_data = components.html(
 current_lat = TOA_DO_MAU_LAT
 current_lon = TOA_DO_MAU_LON
 
+# Kiểm tra dữ liệu và cập nhật giao diện thành công nếu JavaScript đẩy được tọa độ về
 if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
     current_lat = gps_data['lat']
     current_lon = gps_data['lon']
     st.sidebar.success(f"📍 GPS Thiết bị: {current_lat:.6f}, {current_lon:.6f}")
 else:
-    st.sidebar.warning("📡 Đang tìm tín hiệu vệ tinh GPS...")
+    st.sidebar.warning("📡 Đang tìm tín hiệu vệ tinh GPS... (Hoặc bạn hãy tự gõ tọa độ kiểm thử bên dưới)")
 
-# Ô nhập liệu tọa độ thủ công hoặc tự động
+# Ô nhập liệu tọa độ thủ công hoặc tự động nhảy theo GPS
 input_lat = st.sidebar.number_input("Vĩ độ (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ (Lon):", value=current_lon, format="%.6f")
 
@@ -206,7 +216,6 @@ with col1:
     ma_doan = st.text_input("Mã định danh đoạn đường:", placeholder="Ví dụ: 1_BTXM_1")
     loai_duong = st.selectbox("Loại kết cấu mặt đường:", ["Đường nhựa (Mặt đường mềm)", "Đường BTXM (Mặt đường cứng)"])
     
-    # Đã thêm tham số 'key' để Streamlit ép đồng bộ liên tục khi AI thay đổi giá trị session_state
     c_param = st.number_input("% Diện tích nứt vỡ (C):", min_value=0.0, max_value=100.0, value=st.session_state.ai_c_param, step=0.1, key="input_c_param")
     p_param = st.number_input("% Diện tích miếng vá (P):", min_value=0.0, max_value=100.0, value=st.session_state.ai_p_param, step=0.1, key="input_p_param")
     st.metric(label="🚨 Tổng số lượng ổ gà phát hiện", value=f"{st.session_state.ai_o_ga_count} Ổ gà")
@@ -268,7 +277,6 @@ with col2:
             dung_lo_trinh = khoang_cach <= pham_vi
             
             log_sv = math.log10(1 + sv_param)
-            # Thay đổi cách lấy giá trị để đồng bộ tuyệt đối với form biểu mẫu
             sqrt_cp = math.sqrt(st.session_state.input_c_param + st.session_state.input_p_param)
             
             psi = (5.03 - 1.91 * log_sv - 1.38 * (rd_param ** 2) - 0.01 * sqrt_cp) if loai_duong == "Đường nhựa (Mặt đường mềm)" else (5.41 - 1.78 * log_sv - 0.09 * sqrt_cp)
