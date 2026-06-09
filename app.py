@@ -1,6 +1,7 @@
 import streamlit as st
 import math
 import folium
+from folium.plugins import LocateControl  # THÊM TÍNH NĂNG CHẤM XANH TRACKING LIVE
 from streamlit_folium import st_folium
 from datetime import datetime
 import cv2
@@ -10,7 +11,7 @@ from ultralytics import YOLO
 import pandas as pd
 import io
 import requests
-from streamlit_geolocation import streamlit_geolocation  # THƯ VIỆN GPS CHUYÊN DỤNG
+from streamlit_geolocation import streamlit_geolocation
 
 # Cấu hình giao diện Streamlit rộng rãi, hiện đại
 st.set_page_config(layout="wide", page_title="Hệ thống chấm điểm PSI tích hợp AI")
@@ -34,7 +35,6 @@ if 'ai_c_param' not in st.session_state: st.session_state.ai_c_param = 0.0
 if 'ai_p_param' not in st.session_state: st.session_state.ai_p_param = 0.0
 if 'ai_o_ga_count' not in st.session_state: st.session_state.ai_o_ga_count = 0
 
-# Tọa độ mặc định (Khu vực Đại học Giao thông Vận tải Hà Nội)
 TOA_DO_MAU_LAT = 21.0274
 TOA_DO_MAU_LON = 105.8046
 
@@ -48,12 +48,11 @@ except Exception as e:
     st.error(f"Lỗi khởi tải mô hình AI: {e}")
 
 # ----------------------------------------------------------------
-# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH MỚI
+# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH
 # ----------------------------------------------------------------
 st.sidebar.markdown("### 🛰️ Quản lý Vị trí GPS")
-st.sidebar.info("Nhấp vào nút 'Get Location' bên dưới để bắt tọa độ từ vệ tinh:")
+st.sidebar.info("Nhấp nút 'Get Location' để trích xuất tọa độ vệ tinh cho máy chủ:")
 
-# GỌI COMPONENT GPS CHUYÊN DỤNG (Xuyên qua tường lửa bảo mật của iframe)
 location = streamlit_geolocation()
 
 current_lat = TOA_DO_MAU_LAT
@@ -64,7 +63,7 @@ if location is not None and location.get('latitude') is not None and location.ge
     current_lon = location['longitude']
     st.sidebar.success(f"📍 Tọa độ thu được: {current_lat:.6f}, {current_lon:.6f}")
 else:
-    st.sidebar.warning("📡 Đang chờ lệnh lấy tọa độ... (Hoặc tự nhập số liệu bên dưới)")
+    st.sidebar.warning("📡 Chưa lấy dữ liệu tọa độ tĩnh.")
 
 input_lat = st.sidebar.number_input("Vĩ độ (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ (Lon):", value=current_lon, format="%.6f")
@@ -89,7 +88,7 @@ with col_lock2:
 # NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN
 if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary", use_container_width=True):
     if st.session_state.toa_do_bat_dau is None or st.session_state.toa_do_ket_thuc is None:
-        st.sidebar.error("❌ Lỗi: Bạn phải nhập tọa độ và bấm nút 'Khóa Điểm Đầu' + 'Khóa Điểm Cuối' trước khi kích hoạt!")
+        st.sidebar.error("❌ Lỗi: Bạn phải bấm 'Get Location' rồi 'Khóa' đủ 2 Điểm Đầu & Cuối!")
     else:
         st.session_state.thoi_gian_ket_thuc = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
         lat_start, lon_start = st.session_state.toa_do_bat_dau
@@ -215,6 +214,17 @@ with col2:
     
     folium.TileLayer(tiles='https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}', attr='Google Roads', name='Bản đồ giao thông phố').add_to(m)
     folium.TileLayer(tiles='https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', attr='Google Satellite', name='Vệ tinh').add_to(m)
+    
+    # THUẬT TOÁN ĐỊNH VỊ LIVE CHUẨN GOOGLE MAPS
+    LocateControl(
+        position="bottomright",
+        drawCircle=True,
+        flyTo=True,
+        keepCurrentZoomLevel=True,
+        strings={"title": "Vị trí của tôi", "popup": "Bạn đang ở đây"},
+        icon="fa fa-crosshairs"
+    ).add_to(m)
+    
     folium.LayerControl().add_to(m)
     
     if st.session_state.toa_do_bat_dau:
