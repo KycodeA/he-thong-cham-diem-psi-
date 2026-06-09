@@ -1,9 +1,8 @@
-streamlit>=1.35.0
-folium>=0.16.0
-streamlit-folium>=0.18.0
-opencv-python-headless
-ultralytics
-pillow
-pandas
-openpyxl
-streamlit-geolocation
+Flask==3.0.3
+werkzeug==3.0.3
+opencv-python-headless==4.10.0.84
+numpy==1.26.4
+Pillow==10.3.0
+ultralytics==8.2.0
+requests==2.32.3
+gunicorn==22.0.0
