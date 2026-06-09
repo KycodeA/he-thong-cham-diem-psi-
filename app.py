@@ -25,6 +25,7 @@ st.markdown("---")
 if 'toa_do_bat_dau' not in st.session_state: st.session_state.toa_do_bat_dau = None
 if 'toa_do_ket_thuc' not in st.session_state: st.session_state.toa_do_ket_thuc = None
 if 'lich_su_lo_trinh' not in st.session_state: st.session_state.lich_su_lo_trinh = []
+if 'tong_quang_duong_m' not in st.session_state: st.session_state.tong_quang_duong_m = 0.0
 if 'thoi_gian_ket_thuc' not in st.session_state: st.session_state.thoi_gian_ket_thuc = ""
 if 'map_key' not in st.session_state: st.session_state.map_key = "default"
 
@@ -47,11 +48,10 @@ except Exception as e:
     st.error(f"Lỗi khởi tải mô hình AI: {e}")
 
 # ----------------------------------------------------------------
-# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH (ĐÃ NÂNG CẤP WATCHPOSITION)
+# 🛰️ BẢNG ĐIỀU KHIỂN SIDEBAR & ĐỊNH VỊ GPS VỆ TINH
 # ----------------------------------------------------------------
 st.sidebar.markdown("### 🛰️ Quản lý Vị trí GPS")
 
-# Sử dụng cơ chế watchPosition để trình duyệt bám đuôi tọa độ liên tục và ép luồng dữ liệu truyền tải về Streamlit Parent
 gps_data = components.html(
     """
     <script>
@@ -66,7 +66,6 @@ gps_data = components.html(
             lat: position.coords.latitude,
             lon: position.coords.longitude
         };
-        // Gửi tọa độ thẳng lên Streamlit Cloud thông qua cơ chế postMessage bắt buộc
         window.parent.postMessage({ type: 'streamlit:setComponentValue', value: data }, '*');
     }
 
@@ -74,7 +73,6 @@ gps_data = components.html(
         console.warn('ERROR(' + err.code + '): ' + err.message);
     }
 
-    // Bật trình theo dõi tọa độ liên tục thay vì gọi một lần ngắt quãng
     if (navigator.geolocation) {
         navigator.geolocation.watchPosition(success, error, options);
     } else {
@@ -88,7 +86,6 @@ gps_data = components.html(
 current_lat = TOA_DO_MAU_LAT
 current_lon = TOA_DO_MAU_LON
 
-# Kiểm tra dữ liệu và cập nhật giao diện thành công nếu JavaScript đẩy được tọa độ về
 if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
     current_lat = gps_data['lat']
     current_lon = gps_data['lon']
@@ -96,7 +93,6 @@ if gps_data is not None and isinstance(gps_data, dict) and 'lat' in gps_data:
 else:
     st.sidebar.warning("📡 Đang tìm tín hiệu vệ tinh GPS... (Hoặc bạn hãy tự gõ tọa độ kiểm thử bên dưới)")
 
-# Ô nhập liệu tọa độ thủ công hoặc tự động nhảy theo GPS
 input_lat = st.sidebar.number_input("Vĩ độ (Lat):", value=current_lat, format="%.6f")
 input_lon = st.sidebar.number_input("Kinh độ (Lon):", value=current_lon, format="%.6f")
 
@@ -117,7 +113,7 @@ with col_lock2:
         st.session_state.toa_do_ket_thuc = (input_lat, input_lon)
         st.sidebar.success(f"Đã khóa Cuối!")
 
-# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN
+# NÚT BẤM GỌI THUẬT TOÁN ĐỊNH TUYẾN (Cập nhật lấy Khoảng cách thực tế)
 if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary", use_container_width=True):
     if st.session_state.toa_do_bat_dau is None or st.session_state.toa_do_ket_thuc is None:
         st.sidebar.error("❌ Lỗi: Bạn phải nhập tọa độ và bấm nút 'Khóa Điểm Đầu' + 'Khóa Điểm Cuối' trước khi kích hoạt!")
@@ -132,17 +128,27 @@ if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary",
             
             if response.get("code") == "Ok":
                 geometry = response["routes"][0]["geometry"]["coordinates"]
+                # Cập nhật tổng quãng đường thực tế (m) từ API OSRM
+                st.session_state.tong_quang_duong_m = float(response["routes"][0]["distance"])
                 st.session_state.lich_su_lo_trinh = [[coord[1], coord[0]] for coord in geometry]
                 st.session_state.map_key = datetime.now().strftime("%H%M%S")
-                st.sidebar.success("🎉 Đã bẻ cong lộ trình bám sát đường phố!")
+                st.sidebar.success(f"🎉 Định tuyến thành công! Chiều dài tuyến: {st.session_state.tong_quang_duong_m:.1f} m")
             else:
+                # Phương án dự phòng tự tính khoảng cách đường chim bay nếu API lỗi
+                R = 6371000
+                p1, p2 = math.radians(lat_start), math.radians(lat_end)
+                dp = math.radians(lat_end - lat_start)
+                dl = math.radians(lon_end - lon_start)
+                a = math.sin(dp/2)**2 + math.cos(p1)*math.cos(p2) * math.sin(dl/2)**2
+                st.session_state.tong_quang_duong_m = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+                
                 steps = 15
                 interpolated_route = []
                 for i in range(steps + 1):
                     t = i / steps
                     lat_t = lat_start + (lat_end - lat_start) * t
                     lon_t = lon_start + (lon_end - lon_start) * t
-                    if i > 0 and i < steps:
+                    if 0 < i < steps:
                         lat_t += math.sin(t * math.pi) * 0.0009
                     interpolated_route.append([lat_t, lon_t])
                 st.session_state.lich_su_lo_trinh = interpolated_route
@@ -150,6 +156,7 @@ if st.button("🗺️ KÍCH HOẠT ĐỊNH TUYẾN GOOGLE MAPS", type="primary",
                 st.sidebar.info("🗺️ Đã tự động tối ưu đường cong nội đô!")
         except Exception as e:
             st.session_state.lich_su_lo_trinh = [[lat_start, lon_start], [lat_end, lon_end]]
+            st.session_state.tong_quang_duong_m = 0.0
 
 # Chia bố cục màn hình chính
 col1, col2 = st.columns([1, 1.2])
@@ -265,19 +272,18 @@ with col2:
         elif st.session_state.toa_do_ket_thuc is None: 
             st.error("Bạn chưa bấm nút kích hoạt định tuyến!")
         else:
-            lat1, lon1 = st.session_state.toa_do_ket_thuc
-            R = 6371000
-            phi1, phi2 = math.radians(lat1), math.radians(TOA_DO_MAU_LAT)
-            dphi = math.radians(TOA_DO_MAU_LAT - lat1)
-            dlam = math.radians(TOA_DO_MAU_LON - lon1)
-            a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2) * math.sin(dlam/2)**2
-            khoang_cach = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+            # --------------------------------------------------------
+            # THAY ĐỔI QUAN TRỌNG: KIỂM TRA THEO TỔNG QUÃNG ĐƯỜNG THỰC TẾ
+            # --------------------------------------------------------
+            quang_duong_hien_tai = st.session_state.tong_quang_duong_m
+            gioi_han_m = 1000.0 if loai_duong == "Đường nhựa (Mặt đường mềm)" else 500.0
+            ten_gioi_han = "1km" if loai_duong == "Đường nhựa (Mặt đường mềm)" else "500m"
             
-            pham_vi, ten_pham_vi = (1000.0, "1km") if loai_duong == "Đường nhựa (Mặt đường mềm)" else (500.0, "500m")
-            dung_lo_trinh = khoang_cach <= pham_vi
+            # Quãng đường hợp lệ nếu KHÔNG VƯỢT QUÁ giới hạn quy định từ điểm bắt đầu
+            dung_lo_trinh = quang_duong_hien_tai <= gioi_han_m
             
             log_sv = math.log10(1 + sv_param)
-            sqrt_cp = math.sqrt(st.session_state.input_c_param + st.session_state.input_p_param)
+            sqrt_cp = math.sqrt(c_param + p_param)
             
             psi = (5.03 - 1.91 * log_sv - 1.38 * (rd_param ** 2) - 0.01 * sqrt_cp) if loai_duong == "Đường nhựa (Mặt đường mềm)" else (5.41 - 1.78 * log_sv - 0.09 * sqrt_cp)
             if st.session_state.ai_o_ga_count > 0: psi -= min(st.session_state.ai_o_ga_count * 0.05, 1.0)
@@ -288,14 +294,17 @@ with col2:
             elif psi_rounded >= 2.0: st.warning("🟡 Trạng thái mặt đường: Xuất hiện hư hỏng nhẹ.")
             else: st.error("🔴 Trạng thái mặt đường: Xuất hiện hỏng hóc nghiêm trọng!")
             
-            if dung_lo_trinh: st.success(f"✅ Đúng lộ trình yêu cầu (Trong phạm vi {ten_pham_vi}).")
-            else: st.error(f"❌ Sai vị trí quy định (Lệch {khoang_cach:.1f}m so với vùng nghiên cứu mẫu).")
+            st.info(f"📊 Tổng quãng đường thực tế đo được: {quang_duong_hien_tai:.1f} m")
+            if dung_lo_trinh: 
+                st.success(f"✅ Đạt yêu cầu về chiều dài tuyến (Tổng quãng đường {quang_duong_hien_tai:.1f}m <= quy định {ten_gioi_han}).")
+            else: 
+                st.error(f"❌ Vượt quá chiều dài quy định! (Tổng quãng đường {quang_duong_hien_tai:.1f}m > giới hạn cho phép {ten_gioi_han}).")
 
             # XUẤT FILE EXCEL
             st.write("---")
             data_report = {
-                "Danh mục báo cáo": ["Sinh viên thực hiện", "Mã đoạn đường", "Kết cấu mặt đường", "Thời gian hoàn thành", "Vị trí bắt đầu (Lat, Lon)", "Vị trí kết thúc (Lat, Lon)", "Kiểm định lộ trình", "Mật độ nứt vỡ (C)", "Mật độ miếng vá (P)", "Tổng số ổ gà", "Độ gồ ghề (SV)", "Chỉ số PSI sau cùng", "Kết luận phân loại"],
-                "Kết quả chi tiết": [ten_sv, ma_doan, loai_duong, st.session_state.thoi_gian_ket_thuc, str(st.session_state.toa_do_bat_dau), str(st.session_state.toa_do_ket_thuc), "ĐÚNG CHUẨN" if dung_lo_trinh else "SAI LỘ TRÌNH", f"{st.session_state.input_c_param}%", f"{st.session_state.input_p_param}%", st.session_state.ai_o_ga_count, sv_param, psi_rounded, "TỐT" if psi_rounded >= 4.0 else ("TRUNG BÌNH" if psi_rounded >= 2.0 else "XUỐNG CẤP")]
+                "Danh mục báo cáo": ["Sinh viên thực hiện", "Mã đoạn đường", "Kết cấu mặt đường", "Thời gian hoàn thành", "Vị trí bắt đầu (Lat, Lon)", "Vị trí kết thúc (Lat, Lon)", "Tổng chiều dài thực tế", "Kiểm định lộ trình", "Mật độ nứt vỡ (C)", "Mật độ miếng vá (P)", "Tổng số ổ gà", "Độ gồ ghề (SV)", "Chỉ số PSI sau cùng", "Kết luận phân loại"],
+                "Kết quả chi tiết": [ten_sv, ma_doan, loai_duong, st.session_state.thoi_gian_ket_thuc, str(st.session_state.toa_do_bat_dau), str(st.session_state.toa_do_ket_thuc), f"{quang_duong_hien_tai:.1f} m", "HỢP LỆ" if dung_lo_trinh else "QUÁ GIỚI HẠN CHUẨN", f"{c_param}%", f"{p_param}%", st.session_state.ai_o_ga_count, sv_param, psi_rounded, "TỐT" if psi_rounded >= 4.0 else ("TRUNG BÌNH" if psi_rounded >= 2.0 else "XUỐNG CẤP")]
             }
             buffer = io.BytesIO()
             pd.DataFrame(data_report).to_excel(buffer, index=False, sheet_name='Dữ liệu PSI', engine='openpyxl')
