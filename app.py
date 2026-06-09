@@ -119,4 +119,4 @@ def process_data():
         return jsonify({"status": "error", "message": f"Lỗi xử lý hệ thống: {str(e)}"})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=7860, debug=True)
